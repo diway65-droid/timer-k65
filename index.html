@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>Kickboxing 65 — Minuteur</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#100f0e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="KB65 Minuteur">
+
+<link rel="icon" href="icons/favicon-64.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+  :root{
+    --bg: #100f0e;
+    --bg-idle: #1c1a18;
+    --bg-round: #0a0908;
+    --bg-round-2: #221e1a;
+    --bg-danger: #8c1010;
+    --bg-danger-2: #d41f1f;
+    --bg-rest: #0e5c34;
+    --bg-rest-2: #157a44;
+    --bg-prep: #6b4c07;
+    --bg-prep-2: #99700c;
+    --accent-gold: #f5a623;
+    --text: #f6f3ee;
+    --text-dim: #d9c9a8;
+    --panel: #1c1a18;
+    --panel-border: #34302b;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none;}
+  html,body{
+    height:100%; margin:0; overflow:hidden;
+    background:var(--bg); color:var(--text);
+    font-family:'Arial Narrow','Helvetica Neue',Arial,sans-serif;
+  }
+  #app{
+    height:100vh; width:100vw;
+    display:flex; flex-direction:column;
+    background: radial-gradient(ellipse at center, var(--phase-bg-2, var(--bg-idle)) 0%, var(--phase-bg, var(--bg-idle)) 100%);
+    transition: background .5s ease;
+    border: 16px solid var(--accent-gold);
+    position:relative; overflow:hidden;
+  }
+  #watermark{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    pointer-events:none; opacity:.34; z-index:1;
+  }
+  #watermark img{
+    width:min(66vw,66vh); height:auto;
+    filter: drop-shadow(0 0 26px rgba(245,166,35,.30));
+  }
+  #app.blink{ animation: blinkBorder .5s step-start infinite; }
+  @keyframes blinkBorder{ 50%{ border-color:#fff; } }
+
+  /* 10 dernieres secondes : fond rouge clignotant */
+  #app.danger::before{
+    content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
+    background: radial-gradient(ellipse at center, var(--bg-danger-2) 0%, var(--bg-danger) 100%);
+    animation: dangerBlink .5s step-start infinite;
+  }
+  @keyframes dangerBlink{ 50%{ opacity:0; } }
+  #app.flash::after{
+    content:''; position:absolute; inset:0; background:#fff; z-index:8;
+    pointer-events:none; animation: flashOut .45s ease-out forwards;
+  }
+  @keyframes flashOut{ from{opacity:.55;} to{opacity:0;} }
+
+  #topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:16px; padding:14px 26px 0 26px; flex-shrink:0; z-index:1;
+  }
+  .brand{ display:flex; align-items:center; gap:14px; min-width:0; }
+  .brand img{
+    width:clamp(48px,5.4vw,78px); height:clamp(48px,5.4vw,78px);
+    object-fit:contain; flex-shrink:0;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,.6));
+  }
+  .brand-txt{ line-height:1.1; }
+  .club{ font-size:clamp(.85rem,1.3vw,1.15rem); letter-spacing:3px; color:var(--accent-gold); font-weight:800; }
+  .roundcount{ font-size:clamp(1.2rem,2.4vw,2.2rem); font-weight:700; letter-spacing:1px; color:var(--text-dim); }
+  .roundcount b{ color:var(--text); }
+  .phase-pill{
+    padding:9px 28px; border-radius:999px;
+    font-size:clamp(1.1rem,2.6vw,2.4rem); font-weight:800; letter-spacing:3px;
+    background:var(--accent-gold); color:#1a1200; white-space:nowrap;
+  }
+  .icon-btn{
+    width:54px; height:54px; border-radius:14px;
+    background:var(--panel); border:2px solid var(--panel-border);
+    color:var(--text-dim); font-size:1.5rem;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .icon-btn:active{ transform:scale(.94); background:#252220; }
+  #topbar-right{ display:flex; gap:12px; }
+
+  #center{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; gap:4px; min-height:0; z-index:1;
+  }
+  #timer{
+    font-size:clamp(6.5rem,25vw,23rem); font-weight:900; line-height:.92;
+    font-variant-numeric:tabular-nums; letter-spacing:2px;
+    text-shadow:0 0 40px rgba(0,0,0,.45);
+  }
+  #timer.blinktext{ animation: blinkText .5s step-start infinite; }
+  @keyframes blinkText{ 50%{ opacity:.25; } }
+  #sublabel{
+    font-size:clamp(1rem,1.9vw,1.7rem); color:var(--text-dim);
+    font-weight:600; letter-spacing:2px; min-height:1.6em;
+  }
+  #progress-wrap{
+    width:min(82vw,980px); height:14px; background:rgba(255,255,255,.08);
+    border-radius:999px; overflow:hidden; margin-top:16px;
+  }
+  #progress-bar{ height:100%; width:100%; background:var(--accent-gold); }
+
+  #controls{
+    flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    gap:36px; padding:16px 24px 26px 24px; z-index:1;
+  }
+  .ctrl-side{ display:flex; gap:16px; width:200px; }
+  .ctrl-side.right{ justify-content:flex-end; }
+  #playpause{
+    width:160px; height:160px; border-radius:50%;
+    background:var(--accent-gold); color:#1a1200; border:none;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; box-shadow:0 8px 26px rgba(0,0,0,.5); flex-shrink:0;
+  }
+  #playpause:active{ transform:scale(.96); }
+  #playpause svg{ width:62px; height:62px; }
+  .btn{
+    background:var(--panel); border:2px solid var(--panel-border); color:var(--text);
+    border-radius:16px; font-size:1.05rem; font-weight:700; letter-spacing:1px;
+    padding:16px 22px; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; gap:6px; min-width:100px;
+  }
+  .btn span.ic{ font-size:1.4rem; }
+  .btn:active{ transform:scale(.95); background:#252220; }
+
+  #overlay{
+    position:fixed; inset:0; background:rgba(6,5,4,.82);
+    display:none; align-items:center; justify-content:center; z-index:10;
+  }
+  #overlay.open{ display:flex; }
+  #settings{
+    background:var(--panel); border:2px solid var(--panel-border);
+    border-radius:22px; padding:28px 34px; width:min(94vw,820px);
+    max-height:90vh; overflow:auto;
+  }
+  #settings h2{ margin:0 0 18px 0; font-size:1.6rem; letter-spacing:1px; display:flex; align-items:center; gap:12px; }
+  #settings h2 img{ width:38px; height:38px; object-fit:contain; }
+  .row{ display:flex; align-items:center; justify-content:space-between; gap:18px;
+        padding:14px 0; border-top:1px solid var(--panel-border); flex-wrap:wrap; }
+  .row:first-of-type{ border-top:none; }
+  .row label{ font-size:1.1rem; color:var(--text-dim); font-weight:700; }
+  .stepper{ display:flex; align-items:center; gap:10px; }
+  .stepper button{
+    width:50px; height:50px; border-radius:12px; border:2px solid var(--panel-border);
+    background:#252220; color:var(--text); font-size:1.5rem; font-weight:800; cursor:pointer;
+  }
+  .stepper button:active{ background:#302b26; }
+  .stepper .val{ min-width:92px; text-align:center; font-size:1.4rem; font-weight:800; font-variant-numeric:tabular-nums; }
+  .test-btn{
+    background:#3a2a06; border:2px solid var(--accent-gold); color:var(--accent-gold);
+    border-radius:12px; padding:14px 22px; font-size:1.05rem; font-weight:800; cursor:pointer;
+  }
+  .test-btn:active{ background:#4b3608; }
+  #settings-actions{ display:flex; justify-content:flex-end; gap:14px; margin-top:22px; }
+  #settings-actions button{ padding:15px 28px; border-radius:14px; font-size:1.05rem; font-weight:800; border:none; cursor:pointer; }
+  #apply-btn{ background:var(--accent-gold); color:#1a1200; }
+  #cancel-btn{ background:#2a2724; color:var(--text-dim); }
+
+  #done-screen{
+    display:none; position:absolute; inset:16px; z-index:6;
+    background:rgba(10,9,8,.93);
+    align-items:center; justify-content:center; flex-direction:column; gap:16px;
+  }
+  #done-screen.open{ display:flex; }
+  #done-screen img{ width:clamp(110px,16vh,190px); height:auto; object-fit:contain; }
+  #done-screen h1{ font-size:clamp(2.6rem,7vw,5.5rem); margin:0; letter-spacing:2px; color:var(--accent-gold); }
+  #done-screen p{ font-size:1.3rem; color:var(--text-dim); margin:0; }
+
+  @media (max-width:760px), (max-height:520px){
+    #app{ border-width:10px; }
+    #topbar{ padding:10px 14px 0 14px; }
+    .ctrl-side{ width:auto; }
+    #controls{ gap:18px; padding:10px 12px 18px 12px; }
+    #playpause{ width:110px; height:110px; }
+    #playpause svg{ width:44px; height:44px; }
+    .btn{ padding:12px 14px; min-width:80px; font-size:.9rem; }
+    .icon-btn{ width:46px; height:46px; font-size:1.3rem; }
+    .brand-txt .club{ display:none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="watermark"><img class="club-logo" alt=""></div>
+
+  <div id="topbar">
+    <div class="brand">
+      <img class="club-logo" alt="Kickboxing 65">
+      <div class="brand-txt">
+        <div class="club">KICKBOXING 65</div>
+        <div class="roundcount" id="roundcount">Round <b>1</b> / <span id="totalrounds">12</span></div>
+      </div>
+    </div>
+    <div class="phase-pill" id="phasepill">PRÊT</div>
+    <div id="topbar-right">
+      <div class="icon-btn" id="fs-btn" title="Plein écran">⛶</div>
+      <div class="icon-btn" id="reset-btn" title="Réinitialiser">⟳</div>
+      <div class="icon-btn" id="settings-btn" title="Réglages">⚙</div>
+    </div>
+  </div>
+
+  <div id="center">
+    <div id="timer">03:00</div>
+    <div id="sublabel">Appuyez sur lecture pour démarrer</div>
+    <div id="progress-wrap"><div id="progress-bar"></div></div>
+  </div>
+
+  <div id="controls">
+    <div class="ctrl-side">
+      <div class="btn" id="gong-btn"><span class="ic">🔔</span>Gong</div>
+    </div>
+    <button id="playpause" title="Lecture / Pause">
+      <svg id="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="icon-pause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+    </button>
+    <div class="ctrl-side right">
+      <div class="btn" id="next-btn"><span class="ic">⏭</span>Suivant</div>
+    </div>
+  </div>
+
+  <div id="done-screen">
+    <img class="club-logo" alt="Kickboxing 65">
+    <h1>SÉANCE TERMINÉE</h1>
+    <p id="done-sub"></p>
+    <div class="btn" id="done-reset-btn" style="min-width:170px"><span class="ic">⟳</span>Recommencer</div>
+  </div>
+</div>
+
+<div id="overlay">
+  <div id="settings">
+    <h2><img class="club-logo" alt="">Réglages</h2>
+
+    <div class="row">
+      <label>Durée d'un round</label>
+      <div class="stepper">
+        <button data-target="roundMin" data-step="-1">−</button>
+        <div class="val" id="val-roundMin">3 min</div>
+        <button data-target="roundMin" data-step="1">+</button>
+        <button data-target="roundSec" data-step="-15" style="margin-left:12px">−</button>
+        <div class="val" id="val-roundSec">00 s</div>
+        <button data-target="roundSec" data-step="15">+</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Durée du repos</label>
+      <div class="stepper">
+        <button data-target="restMin" data-step="-1">−</button>
+        <div class="val" id="val-restMin">1 min</div>
+        <button data-target="restMin" data-step="1">+</button>
+        <button data-target="restSec" data-step="-15" style="margin-left:12px">−</button>
+        <div class="val" id="val-restSec">00 s</div>
+        <button data-target="restSec" data-step="15">+</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Nombre de rounds</label>
+      <div class="stepper">
+        <button data-target="rounds" data-step="-1">−</button>
+        <div class="val" id="val-rounds">12</div>
+        <button data-target="rounds" data-step="1">+</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Préparation avant le 1<sup>er</sup> round</label>
+      <div class="stepper">
+        <button data-target="prep" data-step="-5">−</button>
+        <div class="val" id="val-prep">10 s</div>
+        <button data-target="prep" data-step="5">+</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Volume général</label>
+      <div class="stepper">
+        <button data-target="vol" data-step="-10">−</button>
+        <div class="val" id="val-vol">100 %</div>
+        <button data-target="vol" data-step="10">+</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Coups de gong</label>
+      <div class="stepper">
+        <button data-target="strikes" data-step="-1">−</button>
+        <div class="val" id="val-strikes">3</div>
+        <button data-target="strikes" data-step="1">+</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Bips des 5 dernières secondes</label>
+      <div class="stepper">
+        <button data-target="beeps" data-step="-1">−</button>
+        <div class="val" id="val-beeps">Oui</div>
+        <button data-target="beeps" data-step="1">+</button>
+      </div>
+    </div>
+
+    <div class="row" style="justify-content:center">
+      <button class="test-btn" id="test-gong">🔔 Tester le gong</button>
+    </div>
+
+    <div id="settings-actions">
+      <button id="cancel-btn">Annuler</button>
+      <button id="apply-btn">Appliquer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  /* ---------- logo ---------- */
+  const LOGO = "logo.webp"; // logo à fond transparent (les icônes d'app icons/*.png ont un fond opaque, requis pour l'écran d'accueil)
+  document.querySelectorAll('.club-logo').forEach(img => img.src = LOGO);
+
+  /* ---------- config ---------- */
+  const DEFAULTS = { roundMin:3, roundSec:0, restMin:1, restSec:0, rounds:12, prep:10, vol:100, strikes:3, beeps:1 };
+  const cfg = Object.assign({}, DEFAULTS);
+  try{
+    const saved = localStorage.getItem('kb65-timer');
+    if(saved) Object.assign(cfg, JSON.parse(saved));
+  }catch(e){}
+  const draft = Object.assign({}, cfg);
+  function saveCfg(){ try{ localStorage.setItem('kb65-timer', JSON.stringify(cfg)); }catch(e){} }
+
+  let roundDuration, restDuration, prepDuration, totalRounds;
+  function applyCfg(){
+    roundDuration = Math.max(5, cfg.roundMin*60 + cfg.roundSec);
+    restDuration  = cfg.restMin*60 + cfg.restSec;
+    prepDuration  = cfg.prep;
+    totalRounds   = cfg.rounds;
+  }
+  applyCfg();
+
+  let currentRound = 1;
+  let phase = 'idle';            // idle | prep | round | rest | done
+  let remaining = roundDuration;
+  let running = false, lastTs = null, lastBeepSecond = null, rafId = null;
+
+  /* ---------- DOM ---------- */
+  const app = document.getElementById('app');
+  const timerEl = document.getElementById('timer');
+  const sublabelEl = document.getElementById('sublabel');
+  const phasepillEl = document.getElementById('phasepill');
+  const roundcountEl = document.getElementById('roundcount');
+  const totalroundsEl = document.getElementById('totalrounds');
+  const progressBar = document.getElementById('progress-bar');
+  const iconPlay = document.getElementById('icon-play');
+  const iconPause = document.getElementById('icon-pause');
+  const doneScreen = document.getElementById('done-screen');
+  const doneSub = document.getElementById('done-sub');
+
+  function fmt(t){
+    t = Math.max(0, Math.ceil(t));
+    return String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0');
+  }
+  function phaseDuration(){
+    if(phase==='round') return roundDuration;
+    if(phase==='rest')  return restDuration;
+    if(phase==='prep')  return prepDuration;
+    return roundDuration;
+  }
+
+  /* =========================================================
+     AUDIO — chaîne de sortie saturée + limitée = gong PUISSANT
+     ========================================================= */
+  let actx=null, bus=null, outGain=null;
+
+  function makeSoftClipCurve(amount){
+    const n = 2048, curve = new Float32Array(n);
+    for(let i=0;i<n;i++){
+      const x = (i/(n-1))*2 - 1;
+      curve[i] = Math.tanh(x*amount)/Math.tanh(amount);
+    }
+    return curve;
+  }
+
+  function ensureAudio(){
+    if(!actx){
+      actx = new (window.AudioContext||window.webkitAudioContext)();
+      bus = actx.createGain(); bus.gain.value = 1;
+
+      // 1) saturation douce : densifie le son, augmente le volume perçu
+      const shaper = actx.createWaveShaper();
+      shaper.curve = makeSoftClipCurve(2.4);
+      shaper.oversample = '4x';
+
+      // 2) compression forte : écrase les crêtes, rend le gong "collé au plafond"
+      const comp = actx.createDynamicsCompressor();
+      comp.threshold.value = -20;
+      comp.knee.value = 8;
+      comp.ratio.value = 14;
+      comp.attack.value = 0.002;
+      comp.release.value = 0.22;
+
+      // 3) présence médium-aigu pour percer dans une salle
+      const presence = actx.createBiquadFilter();
+      presence.type = 'peaking';
+      presence.frequency.value = 2600;
+      presence.Q.value = 0.9;
+      presence.gain.value = 5;
+
+      // 4) limiteur final de sécurité
+      const limiter = actx.createDynamicsCompressor();
+      limiter.threshold.value = -1.5;
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.001;
+      limiter.release.value = 0.12;
+
+      outGain = actx.createGain();
+      outGain.gain.value = cfg.vol/100;
+
+      bus.connect(shaper); shaper.connect(comp); comp.connect(presence);
+      presence.connect(limiter); limiter.connect(outGain); outGain.connect(actx.destination);
+    }
+    if(actx.state==='suspended') actx.resume();
+    if(outGain) outGain.gain.value = cfg.vol/100;
+    return actx;
+  }
+
+  function noiseBuffer(dur, shape){
+    const n = Math.floor(actx.sampleRate*dur);
+    const buf = actx.createBuffer(1, n, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i=0;i<n;i++){ d[i] = (Math.random()*2-1) * Math.pow(1 - i/n, shape); }
+    return buf;
+  }
+
+  /* Un coup de gong : partiels inharmoniques + transitoire métallique + impact grave */
+  function gongHit(t0, intensity){
+    const ctx = actx;
+    const f0 = 132;                       // fondamentale du gong
+    const hit = ctx.createGain();
+    hit.gain.setValueAtTime(0.0001, t0);
+    hit.gain.linearRampToValueAtTime(intensity, t0+0.004);   // attaque très sèche
+    hit.gain.exponentialRampToValueAtTime(0.0008, t0+4.6);   // longue résonance
+    hit.connect(bus);
+
+    // partiels inharmoniques (caractère bronze / cloche de ring)
+    const ratios = [1, 1.51, 1.98, 2.44, 2.97, 3.76, 4.53, 5.82, 7.14, 8.9];
+    const vols   = [1, .72, .78, .52, .60, .40, .34, .26, .18, .12];
+    ratios.forEach((r,i)=>{
+      const decay = 4.2 - i*0.34;
+      [-0.7, 0.7].forEach(det => {        // paire désaccordée = battement / shimmer
+        const osc = ctx.createOscillator();
+        osc.type = i<2 ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(f0*r, t0);
+        osc.detune.setValueAtTime(det*9, t0);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(vols[i]*0.30, t0);
+        g.gain.exponentialRampToValueAtTime(0.0006, t0+Math.max(0.5, decay));
+        osc.connect(g); g.connect(hit);
+        osc.start(t0); osc.stop(t0+Math.max(0.6, decay)+0.1);
+      });
+    });
+
+    // transitoire métallique (le "clac" du maillet)
+    const nz = ctx.createBufferSource();
+    nz.buffer = noiseBuffer(0.35, 2.2);
+    const bp = ctx.createBiquadFilter();
+    bp.type='bandpass'; bp.Q.value=0.6;
+    bp.frequency.setValueAtTime(3200, t0);
+    bp.frequency.exponentialRampToValueAtTime(700, t0+0.30);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.85*intensity, t0);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0+0.32);
+    nz.connect(bp); bp.connect(ng); ng.connect(hit);
+    nz.start(t0);
+
+    // impact grave : on le sent dans la poitrine
+    const sub = ctx.createOscillator();
+    sub.type='sine';
+    sub.frequency.setValueAtTime(110, t0);
+    sub.frequency.exponentialRampToValueAtTime(48, t0+0.45);
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0.9*intensity, t0);
+    sg.gain.exponentialRampToValueAtTime(0.001, t0+0.75);
+    sub.connect(sg); sg.connect(hit);
+    sub.start(t0); sub.stop(t0+0.8);
+  }
+
+  function playGong(strikes){
+    try{
+      const ctx = ensureAudio();
+      const n = Math.max(1, strikes===undefined ? cfg.strikes : strikes);
+      const t0 = ctx.currentTime + 0.02;
+      for(let i=0;i<n;i++){
+        gongHit(t0 + i*0.46, i===0 ? 1.0 : 0.88);
+      }
+      flash();
+    }catch(e){}
+  }
+
+  function playBeep(){
+    if(!cfg.beeps) return;
+    try{
+      const ctx = ensureAudio();
+      const t0 = ctx.currentTime;
+      [1180, 2360].forEach((f,i)=>{
+        const osc = ctx.createOscillator();
+        osc.type = i===0 ? 'square' : 'sine';
+        osc.frequency.setValueAtTime(f, t0);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t0);
+        g.gain.linearRampToValueAtTime(i===0?0.55:0.25, t0+0.006);
+        g.gain.exponentialRampToValueAtTime(0.001, t0+0.15);
+        osc.connect(g); g.connect(bus);
+        osc.start(t0); osc.stop(t0+0.16);
+      });
+    }catch(e){}
+  }
+
+  // petit "clac" bois pour annoncer la fin du repos
+  function playClack(){
+    try{
+      const ctx = ensureAudio();
+      const t0 = ctx.currentTime;
+      const nz = ctx.createBufferSource();
+      nz.buffer = noiseBuffer(0.09, 4);
+      const bp = ctx.createBiquadFilter();
+      bp.type='bandpass'; bp.frequency.value=1700; bp.Q.value=2.2;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.7, t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0+0.1);
+      nz.connect(bp); bp.connect(g); g.connect(bus);
+      nz.start(t0);
+    }catch(e){}
+  }
+
+  function flash(){
+    app.classList.remove('flash');
+    void app.offsetWidth;
+    app.classList.add('flash');
+  }
+
+  /* ---------- rendu ---------- */
+  function applyPhaseColors(){
+    const map = {
+      round:['--bg-round','--bg-round-2'],
+      rest:['--bg-rest','--bg-rest-2'],
+      prep:['--bg-prep','--bg-prep-2']
+    };
+    const p = map[phase];
+    app.style.setProperty('--phase-bg',   p ? 'var('+p[0]+')' : 'var(--bg-idle)');
+    app.style.setProperty('--phase-bg-2', p ? 'var('+p[1]+')' : 'var(--bg-idle)');
+  }
+
+  function render(){
+    applyPhaseColors();
+    timerEl.textContent = fmt(remaining);
+    totalroundsEl.textContent = totalRounds;
+    roundcountEl.innerHTML = 'Round <b>'+Math.min(currentRound,totalRounds)+'</b> / '+totalRounds;
+
+    if(phase==='idle'){ phasepillEl.textContent='PRÊT'; sublabelEl.textContent="Appuyez sur lecture pour démarrer"; }
+    else if(phase==='prep'){ phasepillEl.textContent='PRÉPARATION'; sublabelEl.textContent='En garde…'; }
+    else if(phase==='round'){ phasepillEl.textContent='ROUND'; sublabelEl.textContent = currentRound===totalRounds ? 'Dernier round' : 'Prochain : repos'; }
+    else if(phase==='rest'){ phasepillEl.textContent='REPOS'; sublabelEl.textContent = 'Prochain : round '+(currentRound+1); }
+    else if(phase==='done'){ phasepillEl.textContent='TERMINÉ'; sublabelEl.textContent=''; }
+
+    const dur = phaseDuration();
+    progressBar.style.width = (dur>0 ? Math.max(0,Math.min(1,remaining/dur))*100 : 0)+'%';
+
+    const last10 = (phase==='round'||phase==='rest'||phase==='prep') && remaining<=10 && remaining>0;
+    app.classList.toggle('blink', last10);
+    app.classList.toggle('danger', last10);
+    timerEl.classList.toggle('blinktext', last10);
+
+    iconPlay.style.display = running ? 'none' : 'block';
+    iconPause.style.display = running ? 'block' : 'none';
+
+    doneScreen.classList.toggle('open', phase==='done');
+    if(phase==='done'){ doneSub.textContent = totalRounds+' rounds effectués. Bravo !'; }
+  }
+
+  /* ---------- enchaînement des phases ---------- */
+  function startSession(){
+    if(prepDuration>0){ phase='prep'; remaining=prepDuration; playClack(); }
+    else { phase='round'; remaining=roundDuration; playGong(); }
+  }
+
+  function goToNextPhase(){
+    if(phase==='prep'){
+      phase='round'; remaining=roundDuration; playGong();
+    } else if(phase==='round'){
+      if(currentRound>=totalRounds){
+        playGong(Math.max(cfg.strikes,3));   // fin de séance : gong appuyé
+        phase='done'; running=false; remaining=0;
+      } else {
+        playGong();
+        phase='rest'; remaining=restDuration;
+      }
+    } else if(phase==='rest'){
+      currentRound++;
+      phase='round'; remaining=roundDuration; playGong();
+    } else if(phase==='idle'){
+      startSession();
+    }
+    lastBeepSecond = null;
+    render();
+  }
+
+  function tick(ts){
+    if(!running) return;
+    if(lastTs===null) lastTs = ts;
+    remaining -= (ts-lastTs)/1000;
+    lastTs = ts;
+
+    if(phase==='round'||phase==='rest'||phase==='prep'){
+      const left = Math.ceil(remaining);
+      if(left<=5 && left>=1 && left!==lastBeepSecond){ lastBeepSecond = left; playBeep(); }
+    }
+
+    if(remaining<=0){
+      goToNextPhase();
+      if(phase==='done'){ running=false; render(); return; }
+    } else render();
+
+    rafId = requestAnimationFrame(tick);
+  }
+
+  /* ---------- écran allumé ---------- */
+  let wakeLock = null;
+  async function keepAwake(on){
+    try{
+      if(on && 'wakeLock' in navigator && !wakeLock){ wakeLock = await navigator.wakeLock.request('screen'); }
+      else if(!on && wakeLock){ wakeLock.release(); wakeLock = null; }
+    }catch(e){}
+  }
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && running) keepAwake(true); });
+
+  /* ---------- commandes ---------- */
+  document.getElementById('playpause').addEventListener('click', ()=>{
+    ensureAudio();
+    if(phase==='done') return;
+    if(phase==='idle'){ startSession(); running=true; lastTs=null; rafId=requestAnimationFrame(tick); keepAwake(true); render(); return; }
+    running = !running;
+    if(running){ lastTs=null; rafId=requestAnimationFrame(tick); keepAwake(true); }
+    else { if(rafId) cancelAnimationFrame(rafId); keepAwake(false); }
+    render();
+  });
+
+  document.getElementById('next-btn').addEventListener('click', ()=>{
+    ensureAudio();
+    if(phase==='done') return;
+    goToNextPhase();
+  });
+
+  document.getElementById('gong-btn').addEventListener('click', ()=>{ ensureAudio(); playGong(); });
+
+  function resetAll(){
+    if(rafId) cancelAnimationFrame(rafId);
+    running=false; currentRound=1; phase='idle';
+    remaining=roundDuration; lastBeepSecond=null;
+    keepAwake(false);
+    render();
+  }
+  document.getElementById('reset-btn').addEventListener('click', resetAll);
+  document.getElementById('done-reset-btn').addEventListener('click', resetAll);
+
+  document.getElementById('fs-btn').addEventListener('click', ()=>{
+    if(!document.fullscreenElement){ document.documentElement.requestFullscreen?.(); }
+    else { document.exitFullscreen?.(); }
+  });
+
+  document.addEventListener('keydown', e=>{
+    if(e.code==='Space'){ e.preventDefault(); document.getElementById('playpause').click(); }
+    if(e.code==='ArrowRight'){ document.getElementById('next-btn').click(); }
+    if(e.key==='r'||e.key==='R'){ resetAll(); }
+    if(e.key==='g'||e.key==='G'){ ensureAudio(); playGong(); }
+  });
+
+  /* ---------- réglages ---------- */
+  const overlay = document.getElementById('overlay');
+  function syncDraftLabels(){
+    document.getElementById('val-roundMin').textContent = draft.roundMin+' min';
+    document.getElementById('val-roundSec').textContent = String(draft.roundSec).padStart(2,'0')+' s';
+    document.getElementById('val-restMin').textContent  = draft.restMin+' min';
+    document.getElementById('val-restSec').textContent  = String(draft.restSec).padStart(2,'0')+' s';
+    document.getElementById('val-rounds').textContent   = draft.rounds;
+    document.getElementById('val-prep').textContent     = draft.prep+' s';
+    document.getElementById('val-vol').textContent      = draft.vol+' %';
+    document.getElementById('val-strikes').textContent  = draft.strikes;
+    document.getElementById('val-beeps').textContent    = draft.beeps ? 'Oui' : 'Non';
+  }
+  document.getElementById('settings-btn').addEventListener('click', ()=>{
+    Object.assign(draft, cfg); syncDraftLabels(); overlay.classList.add('open');
+  });
+  document.getElementById('cancel-btn').addEventListener('click', ()=> overlay.classList.remove('open'));
+  document.getElementById('apply-btn').addEventListener('click', ()=>{
+    Object.assign(cfg, draft);
+    applyCfg(); saveCfg();
+    if(outGain) outGain.gain.value = cfg.vol/100;
+    overlay.classList.remove('open');
+    resetAll();
+  });
+  document.getElementById('test-gong').addEventListener('click', ()=>{
+    const keep = cfg.vol, keepS = cfg.strikes;
+    cfg.vol = draft.vol; cfg.strikes = draft.strikes;
+    ensureAudio(); playGong();
+    cfg.vol = keep; cfg.strikes = keepS;
+  });
+
+  const LIMITS = {
+    roundMin:[0,20], roundSec:[0,45], restMin:[0,10], restSec:[0,45],
+    rounds:[1,30], prep:[0,60], vol:[10,100], strikes:[1,5], beeps:[0,1]
+  };
+  document.querySelectorAll('.stepper button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const t = btn.dataset.target;
+      let v = draft[t] + parseInt(btn.dataset.step,10);
+      const [lo,hi] = LIMITS[t];
+      draft[t] = Math.max(lo, Math.min(hi, v));
+      syncDraftLabels();
+    });
+  });
+
+  syncDraftLabels();
+  render();
+})();
+
+// ---------- installation PWA (hors-ligne) ----------
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
