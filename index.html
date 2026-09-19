@@ -302,7 +302,16 @@
     </div>
 
     <div class="row">
-      <label>Coups de gong</label>
+      <label>Son du gong</label>
+      <div class="stepper">
+        <button data-target="gongSound" data-step="-1">−</button>
+        <div class="val" id="val-gongSound" style="min-width:150px">Classique</div>
+        <button data-target="gongSound" data-step="1">+</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Coups de gong<br><span id="strikes-note" style="font-weight:400;font-size:.8rem;color:var(--text-dim);display:none">(ignoré : ce son n'est joué qu'une fois)</span></label>
       <div class="stepper">
         <button data-target="strikes" data-step="-1">−</button>
         <div class="val" id="val-strikes">3</div>
@@ -337,7 +346,20 @@
   document.querySelectorAll('.club-logo').forEach(img => img.src = LOGO);
 
   /* ---------- config ---------- */
-  const DEFAULTS = { roundMin:3, roundSec:0, restMin:1, restSec:0, rounds:12, prep:10, vol:100, strikes:3, beeps:1 };
+  const DEFAULTS = { roundMin:3, roundSec:0, restMin:1, restSec:0, rounds:12, prep:10, vol:100, strikes:3, beeps:1, gongSound:'synth' };
+  const GONG_SOUNDS = [
+    { id:'synth',  label:'Classique' },
+    { id:'sound1', label:'Son 1' },
+    { id:'sound2', label:'Son 2' },
+    { id:'sound3', label:'Son 3' }
+  ];
+  // Durée réelle de chaque fichier (secondes) : sert à savoir si on peut répéter le son
+  // pour "coups de gong", ou s'il faut le jouer une seule fois (sons longs).
+  const SOUND_META = {
+    sound1: { src:"sounds/sound1.mp3", duration:1.2  },
+    sound2: { src:"sounds/sound2.mp3", duration:15.7 },
+    sound3: { src:"sounds/sound3.mp3", duration:54.1 }
+  };
   const cfg = Object.assign({}, DEFAULTS);
   try{
     const saved = localStorage.getItem('kb65-timer');
@@ -436,10 +458,52 @@
 
       bus.connect(shaper); shaper.connect(comp); comp.connect(presence);
       presence.connect(limiter); limiter.connect(outGain); outGain.connect(actx.destination);
+
+      preloadCustomSounds(); // charge les 3 sons perso en tâche de fond
     }
     if(actx.state==='suspended') actx.resume();
     if(outGain) outGain.gain.value = cfg.vol/100;
     return actx;
+  }
+
+  /* ---------- sons de gong personnalisés (mp3) ---------- */
+  const soundBuffers = {};
+  const soundLoadPromises = {};
+  function loadSound(key){
+    if(soundBuffers[key]) return Promise.resolve(soundBuffers[key]);
+    if(soundLoadPromises[key]) return soundLoadPromises[key];
+    const meta = SOUND_META[key];
+    soundLoadPromises[key] = fetch(meta.src)
+      .then(r=>r.arrayBuffer())
+      .then(ab=>actx.decodeAudioData(ab))
+      .then(buf=>{ soundBuffers[key]=buf; return buf; })
+      .catch(err=>{ delete soundLoadPromises[key]; throw err; });
+    return soundLoadPromises[key];
+  }
+  function preloadCustomSounds(){
+    Object.keys(SOUND_META).forEach(k=> loadSound(k).catch(()=>{}));
+  }
+  function playCustomGong(key, strong){
+    loadSound(key).then(buf=>{
+      const ctx = actx;
+      const t0 = ctx.currentTime + 0.02;
+      const meta = SOUND_META[key];
+      // sons courts (≈1s) : on les répète selon "Coups de gong" ; sons longs : une seule lecture
+      const reps = meta.duration <= 1.6 ? Math.max(1, cfg.strikes) : 1;
+      const gap  = meta.duration + 0.12;
+      for(let i=0;i<reps;i++){
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const g = ctx.createGain();
+        g.gain.value = strong ? 1.0 : 0.95;
+        src.connect(g); g.connect(bus);
+        src.start(t0 + i*gap);
+      }
+      flash();
+    }).catch(()=>{
+      // repli sur le gong classique si le fichier ne charge pas
+      playSynthGong(strong ? Math.max(cfg.strikes,3) : undefined);
+    });
   }
 
   function noiseBuffer(dur, shape){
@@ -503,15 +567,25 @@
     sub.start(t0); sub.stop(t0+0.8);
   }
 
+  function playSynthGong(strikes){
+    const ctx = ensureAudio();
+    const n = Math.max(1, strikes===undefined ? cfg.strikes : strikes);
+    const t0 = ctx.currentTime + 0.02;
+    for(let i=0;i<n;i++){
+      gongHit(t0 + i*0.46, i===0 ? 1.0 : 0.88);
+    }
+    flash();
+  }
+
+  // Point d'entrée unique : joue le son classique ou le mp3 choisi dans les réglages
   function playGong(strikes){
     try{
-      const ctx = ensureAudio();
-      const n = Math.max(1, strikes===undefined ? cfg.strikes : strikes);
-      const t0 = ctx.currentTime + 0.02;
-      for(let i=0;i<n;i++){
-        gongHit(t0 + i*0.46, i===0 ? 1.0 : 0.88);
+      ensureAudio();
+      if(cfg.gongSound && cfg.gongSound !== 'synth'){
+        playCustomGong(cfg.gongSound, strikes!==undefined);
+      } else {
+        playSynthGong(strikes);
       }
-      flash();
     }catch(e){}
   }
 
@@ -705,6 +779,10 @@
     document.getElementById('val-vol').textContent      = draft.vol+' %';
     document.getElementById('val-strikes').textContent  = draft.strikes;
     document.getElementById('val-beeps').textContent    = draft.beeps ? 'Oui' : 'Non';
+    const gs = GONG_SOUNDS.find(s=>s.id===draft.gongSound) || GONG_SOUNDS[0];
+    document.getElementById('val-gongSound').textContent = gs.label;
+    const meta = SOUND_META[draft.gongSound];
+    document.getElementById('strikes-note').style.display = (meta && meta.duration>1.6) ? 'inline' : 'none';
   }
   document.getElementById('settings-btn').addEventListener('click', ()=>{
     Object.assign(draft, cfg); syncDraftLabels(); overlay.classList.add('open');
@@ -718,10 +796,10 @@
     resetAll();
   });
   document.getElementById('test-gong').addEventListener('click', ()=>{
-    const keep = cfg.vol, keepS = cfg.strikes;
-    cfg.vol = draft.vol; cfg.strikes = draft.strikes;
+    const keep = { vol:cfg.vol, strikes:cfg.strikes, gongSound:cfg.gongSound };
+    Object.assign(cfg, { vol:draft.vol, strikes:draft.strikes, gongSound:draft.gongSound });
     ensureAudio(); playGong();
-    cfg.vol = keep; cfg.strikes = keepS;
+    Object.assign(cfg, keep);
   });
 
   const LIMITS = {
@@ -731,9 +809,15 @@
   document.querySelectorAll('.stepper button').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const t = btn.dataset.target;
-      let v = draft[t] + parseInt(btn.dataset.step,10);
-      const [lo,hi] = LIMITS[t];
-      draft[t] = Math.max(lo, Math.min(hi, v));
+      const step = parseInt(btn.dataset.step,10);
+      if(t==='gongSound'){
+        const idx = GONG_SOUNDS.findIndex(s=>s.id===draft.gongSound);
+        const ni = ((idx===-1?0:idx) + step + GONG_SOUNDS.length) % GONG_SOUNDS.length;
+        draft.gongSound = GONG_SOUNDS[ni].id;
+      } else {
+        const [lo,hi] = LIMITS[t];
+        draft[t] = Math.max(lo, Math.min(hi, draft[t] + step));
+      }
       syncDraftLabels();
     });
   });
