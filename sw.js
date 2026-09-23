@@ -1,4 +1,4 @@
-const CACHE = 'kb65-minuteur-v2';
+const CACHE = 'kb65-minuteur-v3';
 const ASSETS = [
   './',
   './index.html',
