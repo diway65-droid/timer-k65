@@ -489,7 +489,7 @@
       const t0 = ctx.currentTime + 0.02;
       const meta = SOUND_META[key];
       // sons courts (≈1s) : on les répète selon "Coups de gong" ; sons longs : une seule lecture
-      const reps = meta.duration <= 1.6 ? Math.max(1, cfg.strikes) : 1;
+      const reps = Math.max(1, cfg.strikes) : 1;
       const gap  = meta.duration + 0.12;
       for(let i=0;i<reps;i++){
         const src = ctx.createBufferSource();
